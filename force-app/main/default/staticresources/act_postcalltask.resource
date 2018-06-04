@@ -59,7 +59,13 @@ limitations under the License.
 
         contact.onConnected(function(contactOnConnected) {
           connect.getLog().info("ACToolkit:PostCallTask:onAgentHandler:ContactOnConnectedHandler invoked");
-          if (!contactOnConnected.isInbound()) {
+          /*
+           * Due to how callback works need to add a check so that it triggers
+           * the startActiveCall() method. Callbacks are always inbound but hit
+           * here when connecting to the customer so need to add a check to see
+           */
+          var type = contactOnConnected.getType();
+          if (!contactOnConnected.isInbound() || type === 'queue_callback') {
             startActiveCall();
           }
         });
@@ -68,13 +74,21 @@ limitations under the License.
           connect.getLog().info("ACToolkit:PostCallTask:onAgentHandler:ContactOnEndedHandler invoked");
           setCallContextProperty("callEndTime", new Date().getTime());
           setCallContextProperty("callQueue", contact.getQueue().name);
-           
+
           var callContext = getCurrentCallContext();
-             
+
           clearCallContext();
-          if (callContext.callActive) {
-            createTask(contactOnEnded, callContext);
-          }
+          connect.agent(function(agent){
+            var state = agent.getState().name;
+            /* Callbacks in AC are represented in two different calls. An inbound call that establishes the
+             * connection, which is then transitioned to an outbound call dialing the customer. Since the
+             * inbound call will end, we don't want to have a task recorded at that stage, but at the end
+             * of the outbound call. The ACW state indicates to us that the main call is completed.
+             */
+            if (callContext.callActive && state === 'AfterCallWork') {
+              createTask(contactOnEnded, callContext);
+            }
+          });
         });
       });
     }
